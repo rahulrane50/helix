@@ -108,7 +108,9 @@ class GlobalRebalanceRunner implements AutoCloseable {
       final CurrentStateOutput currentStateOutput, RebalanceAlgorithm algorithm) throws HelixRebalanceException {
     _changeDetector.updateSnapshots(clusterData);
     // Get all the changed items' information. Filter for the items that have content changed.
+    //RR: So this will not capture any current state changes
     final Map<HelixConstants.ChangeType, Set<String>> clusterChanges = _changeDetector.getAllChanges();
+    System.out.println("RR: cluster changes considered for global rebalance" + clusterChanges.toString());
 
     if (clusterChanges.keySet().stream().anyMatch(GLOBAL_REBALANCE_REQUIRED_CHANGE_TYPES::contains)) {
       final boolean waitForGlobalRebalance = !_asyncGlobalRebalanceEnabled;
@@ -162,6 +164,7 @@ class GlobalRebalanceRunner implements AutoCloseable {
     Map<String, ResourceAssignment> currentBaseline =
         _assignmentManager.getBaselineAssignment(_assignmentMetadataStore, currentStateOutput, resourceMap.keySet());
     ClusterModel clusterModel;
+    LOG.info("RR: prev baseline for global :{}", currentBaseline);
     try {
       clusterModel =
           ClusterModelProvider.generateClusterModelForBaseline(clusterData, resourceMap, clusterData.getAllInstances(),
@@ -171,7 +174,9 @@ class GlobalRebalanceRunner implements AutoCloseable {
           HelixRebalanceException.Type.INVALID_CLUSTER_STATUS, ex);
     }
 
+    LOG.info("RR: cluster model for global rebalance which is fed to waged algo :{}", clusterModel);
     Map<String, ResourceAssignment> newBaseline = WagedRebalanceUtil.calculateAssignment(clusterModel, algorithm);
+    LOG.info("RR: new baseline global :{}", newBaseline);
     boolean isBaselineChanged =
         _assignmentMetadataStore != null && _assignmentMetadataStore.isBaselineChanged(newBaseline);
     // Write the new baseline to metadata store

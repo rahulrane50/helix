@@ -758,10 +758,12 @@ public class ZKHelixAdmin implements HelixAdmin {
     CurrentState curState =
         accessor.getProperty(keyBuilder.currentState(instanceName, sessionId, resourceName));
     for (String partitionName : resetPartitionNames) {
+      // RR: For POC reset partition even if it's not in ERROR state.
       if (!curState.getState(partitionName).equals(HelixDefinedState.ERROR.toString())) {
-        throw new HelixException(String.format(ResetPartitionFailureReason.PARTITION_NOT_ERROR
+        /*throw new HelixException(String.format(ResetPartitionFailureReason.PARTITION_NOT_ERROR
             .getMessage(resourceName, partitionNames, instanceName, partitionNames.toString(),
-                clusterName)));
+                clusterName)));*/
+        logger.info("RR: partition curr state :{}", curState.getState(partitionName));
       }
     }
 
@@ -810,7 +812,8 @@ public class ZKHelixAdmin implements HelixAdmin {
       message.setResourceName(resourceName);
       message.setTgtSessionId(sessionId);
       message.setStateModelDef(stateModelDef);
-      message.setFromState(HelixDefinedState.ERROR.toString());
+      //message.setFromState(HelixDefinedState.ERROR.toString());
+      message.setFromState("SLAVE");
       message.setToState(stateModel.getInitialState());
       message.setStateModelFactoryName(idealState.getStateModelFactoryName());
 
