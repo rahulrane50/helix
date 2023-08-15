@@ -100,6 +100,7 @@ public class CurrentStateComputationStage extends AbstractBaseStage {
       updatePendingMessages(instance, cache, messages.values(), relayMessages.values(),
           existingStaleMessages, currentStateOutput, resourceMap);
     }
+    LOG.info("RR: current state is : {}", currentStateOutput);
     event.addAttribute(AttributeName.CURRENT_STATE.name(), currentStateOutput);
 
     final ClusterStatusMonitor clusterStatusMonitor =

@@ -20,6 +20,7 @@ package org.apache.helix.integration.rebalancer.WagedRebalancer;
  */
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -38,6 +39,8 @@ import org.apache.helix.controller.rebalancer.strategy.CrushEdRebalanceStrategy;
 import org.apache.helix.controller.rebalancer.strategy.CrushRebalanceStrategy;
 import org.apache.helix.controller.rebalancer.util.RebalanceScheduler;
 import org.apache.helix.controller.rebalancer.waged.AssignmentMetadataStore;
+import org.apache.helix.controller.stages.AttributeName;
+import org.apache.helix.controller.stages.CurrentStateOutput;
 import org.apache.helix.integration.manager.ClusterControllerManager;
 import org.apache.helix.integration.manager.MockParticipantManager;
 import org.apache.helix.manager.zk.ZKHelixDataAccessor;
@@ -47,6 +50,7 @@ import org.apache.helix.model.ClusterConfig;
 import org.apache.helix.model.ExternalView;
 import org.apache.helix.model.IdealState;
 import org.apache.helix.model.InstanceConfig;
+import org.apache.helix.model.Partition;
 import org.apache.helix.model.ResourceAssignment;
 import org.apache.helix.model.ResourceConfig;
 import org.apache.helix.model.StateModelDefinition;
@@ -54,6 +58,7 @@ import org.apache.helix.tools.ClusterVerifiers.HelixClusterVerifier;
 import org.apache.helix.tools.ClusterVerifiers.StrictMatchExternalViewVerifier;
 import org.apache.helix.tools.ClusterVerifiers.ZkHelixClusterVerifier;
 import org.apache.helix.util.HelixUtil;
+import org.apache.helix.zookeeper.datamodel.ZNRecord;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.AfterMethod;
@@ -712,6 +717,63 @@ public class TestWagedRebalance extends ZkTestBase {
     validate(_replica);
   }
 
+  // If the node
+  @Test(dependsOnMethods = "test")
+  public void testCurrentStateChangeForOneOfReplicas() throws InterruptedException {
+    // Check all partitions of all resources are in healthy state on given instances.
+    String dbName = "Test-DB-" + TestHelper.getTestMethodName();
+    createResourceWithWagedRebalance(CLUSTER_NAME, dbName,
+        BuiltInStateModelDefinitions.MasterSlave.name(), PARTITIONS, _replica, _replica);
+    // _gSetupTool.rebalanceStorageCluster(CLUSTER_NAME, dbName, _replica); RR: This is not needed since createResource already triggers rebalance.
+    _allDBs.add(dbName);
+
+    validate(_replica);
+    //    During rebalancing see preference list and if that replicas is picked for rebalancing.
+    //    After rebalancing check if that replica is moved to some other node or it's just state transitioned.
+    // Verify there is no assignment on the disabled participants.
+    ExternalView ev =
+        _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, dbName);
+    String partitionToBeChanged = ev.getPartitionSet().stream().findFirst().get();
+    String instanceName = null;
+
+    for (Map.Entry<String, String> instanceReplicaEntry : ev.getStateMap(partitionToBeChanged).entrySet()) {
+      System.out.println("RR: ====================resetting partition " + partitionToBeChanged + " from instance " + instanceReplicaEntry.getKey());
+      instanceName = instanceReplicaEntry.getKey();
+      break;
+    }
+
+    int numOfPartitions = 0;
+    for(String partition : ev.getPartitionSet()) {
+      Map<String, String> assignmentMap = ev.getRecord().getMapField(partition);
+      if (assignmentMap.containsKey(instanceName)) {
+        numOfPartitions++;
+      }
+    }
+
+
+    // Set test instance capacity and partition weights
+    InstanceConfig instanceConfig =  _gSetupTool.getClusterManagementTool().getInstanceConfig(CLUSTER_NAME, instanceName);
+    System.out.println("RR: instance config" + instanceConfig);
+    String testCapacityKey = "TestCapacityKey";
+    instanceConfig.setInstanceCapacityMap(ImmutableMap.of(testCapacityKey, numOfPartitions-1));
+
+    _gSetupTool.getClusterManagementTool().enableMaintenanceMode(CLUSTER_NAME, true, TestHelper.getTestMethodName());
+
+    // First reduce instance capacity now since we are in maintainence mode partitions mapping won't be changed by helix.
+    _gSetupTool.getClusterManagementTool().setInstanceConfig(CLUSTER_NAME, instanceName, instanceConfig);
+
+    // First reset partition on bad disk, since cluster is in maintainence mode it it WON"T be moved to other hosts
+    _gSetupTool.getClusterManagementTool().resetPartition(CLUSTER_NAME, instanceName, dbName, Arrays.asList(partitionToBeChanged));
+
+
+    _gSetupTool.getClusterManagementTool().enableMaintenanceMode(CLUSTER_NAME, false, TestHelper.getTestMethodName());
+
+
+    validateReplicaMovement(dbName, partitionToBeChanged, instanceName, numOfPartitions-1);
+
+    // 3. Now again bring back state to healthy. Now increase instance capacity to back and see what all replicas are moved.
+  }
+
   private void validate(int expectedReplica) {
     HelixClusterVerifier _clusterVerifier =
         new StrictMatchExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR)
@@ -730,6 +792,33 @@ public class TestWagedRebalance extends ZkTestBase {
           _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, db);
       validateIsolation(is, ev, expectedReplica);
     }
+  }
+
+  private void validateReplicaMovement(String dbName, String partionName, String instanceName, int expectedReplicas) {
+    HelixClusterVerifier _clusterVerifier =
+        new StrictMatchExternalViewVerifier.Builder(CLUSTER_NAME).setZkAddr(ZK_ADDR)
+            .setDeactivatedNodeAwareness(true).setResources(_allDBs)
+            .setWaitTillVerify(TestHelper.DEFAULT_REBALANCE_PROCESSING_WAIT_TIME)
+            .build();
+    try {
+      Assert.assertTrue(_clusterVerifier.verify(5000));
+    } finally {
+      _clusterVerifier.close();
+    }
+    int totalReplicasOnInstance = 0;
+    IdealState is =
+          _gSetupTool.getClusterManagementTool().getResourceIdealState(CLUSTER_NAME, dbName);
+    ExternalView ev =
+          _gSetupTool.getClusterManagementTool().getResourceExternalView(CLUSTER_NAME, dbName);
+    for(String partition : is.getPartitionSet()) {
+      Map<String, String> assignmentMap = ev.getRecord().getMapField(partition);
+      if (assignmentMap.containsKey(instanceName)) {
+        totalReplicasOnInstance++;
+        Assert.assertNotSame(partition, partionName);
+      }
+    }
+    System.out.println("RR: external view :" + ev);
+    //Assert.assertEquals(expectedReplicas, totalReplicasOnInstance);
   }
 
   /**

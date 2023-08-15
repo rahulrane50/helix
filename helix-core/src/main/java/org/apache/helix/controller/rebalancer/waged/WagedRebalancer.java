@@ -269,6 +269,7 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
         newIdealStates = convertResourceAssignment(clusterData, assignmentRecord);
       }
     }
+    LOG.info("RR: Computed new ideal states for resource {} is {}", resourceMap.keySet().toString(), newIdealStates.toString());
 
     // Construct the new best possible states according to the current state and target assignment.
     // Note that the new ideal state might be an intermediate state between the current state and
@@ -279,6 +280,7 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
       ResourceAssignment finalAssignment = _mappingCalculator
           .computeBestPossiblePartitionState(clusterData, idealState, resourceMap.get(resourceName),
               currentStateOutput);
+      LOG.info("RR: final assignment for partitions :{}", finalAssignment.toString());
 
       // Clean up the state mapping fields. Use the final assignment that is calculated by the
       // mapping calculator to replace them.
@@ -300,6 +302,7 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
       ResourceControllerDataProvider clusterData, Map<String, Resource> resourceMap,
       final CurrentStateOutput currentStateOutput, RebalanceAlgorithm algorithm)
       throws HelixRebalanceException {
+    //RR: if we remove this node from this list then all other partitions will also move
     Set<String> activeNodes = DelayedRebalanceUtil
         .getActiveNodes(clusterData.getAllInstances(), clusterData.getEnabledLiveInstances(),
             clusterData.getInstanceOfflineTimeMap(), clusterData.getLiveInstances().keySet(),
@@ -450,14 +453,17 @@ public class WagedRebalancer implements StatefulRebalancer<ResourceControllerDat
             resourceMap.keySet());
 
     // Step 1: Check for permanent node down
+    // RR: or extra step can be added here that if replica is marked OFFLINE means it can be on bad disk so it should be
+    // moved out from that node.
     AtomicBoolean allNodesActive = new AtomicBoolean(true);
     currentBestPossibleAssignment.values().parallelStream().forEach((resourceAssignment -> {
       resourceAssignment.getMappedPartitions().parallelStream().forEach(partition -> {
-        for (String instance : resourceAssignment.getReplicaMap(partition).keySet()) {
-          if (!activeNodes.contains(instance)) {
+        for (Map.Entry<String, String> instanceStateEntry : resourceAssignment.getReplicaMap(partition).entrySet()) {
+          if (!activeNodes.contains(instanceStateEntry.getKey())) {
             allNodesActive.set(false);
             break;
           }
+          // RR: Also check if this particular partition is in OFFLINE/DISK_FAILED state in current state then
         }
       });
     }));

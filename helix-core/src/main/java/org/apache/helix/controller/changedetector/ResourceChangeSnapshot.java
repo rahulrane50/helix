@@ -77,6 +77,7 @@ class ResourceChangeSnapshot {
    *                                 For example, instance disabled or not, rebalance throttling
    *                                 configurations, resource disabled or not, etc.
    */
+  // RR: Note here that for global rebalance we don't capture any current state changes.
   ResourceChangeSnapshot(ResourceControllerDataProvider dataProvider,
       boolean ignoreNonTopologyChange) {
     _changedTypes = new HashSet<>(dataProvider.getRefreshedChangeTypes());

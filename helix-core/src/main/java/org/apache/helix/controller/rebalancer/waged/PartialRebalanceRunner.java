@@ -148,6 +148,7 @@ class PartialRebalanceRunner implements AutoCloseable {
     Map<String, ResourceAssignment> currentBaseline =
         _assignmentManager.getBaselineAssignment(_assignmentMetadataStore, currentStateOutput, resourceMap.keySet());
 
+    LOG.info("RR: current baseline in partial rebalance : {}", currentBaseline);
     // Read the best possible assignment from metadata store
     Map<String, ResourceAssignment> currentBestPossibleAssignment =
         _assignmentManager.getBestPossibleAssignment(_assignmentMetadataStore, currentStateOutput,

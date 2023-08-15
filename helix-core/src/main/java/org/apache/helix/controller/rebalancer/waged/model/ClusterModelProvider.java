@@ -239,6 +239,7 @@ public class ClusterModelProvider {
     // Initial the cluster context with the allocated assignments.
     context.setAssignmentForFaultZoneMap(mapAssignmentToFaultZone(assignableNodes));
 
+    System.out.println("RR: output of to be assingned replicas : " + toBeAssignedReplicas + " allocated replicas :" + allocatedReplicas + " assignable nodes :" + assignableNodes + " scope" + scopeType);
     return new ClusterModel(context, toBeAssignedReplicas, assignableNodes);
   }
 
@@ -388,6 +389,7 @@ public class ClusterModelProvider {
       Map<String, Set<AssignableReplica>> allocatedReplicas) {
     Set<AssignableReplica> toBeAssignedReplicas = new HashSet<>();
 
+    // RR: THIS IS MOST IMP METHOD WHERE everything is decided.
     // A newly connected node = A new LiveInstance znode (or session Id updated) & the
     // corresponding instance is live.
     // TODO: The assumption here is that if the LiveInstance znode is created or it's session Id is
@@ -403,8 +405,10 @@ public class ClusterModelProvider {
       // 1. If the cluster topology has been modified, need to reassign all replicas.
       // 2. If any node was newly connected, need to rebalance all replicas for the evenness of
       // distribution.
+      // RR: Since we are changing weight of instance here it all replicas on that instance will be added to_be_rebalanced
       toBeAssignedReplicas
           .addAll(replicaMap.values().stream().flatMap(Set::stream).collect(Collectors.toSet()));
+      System.out.println("RR: since it's instance config adding all replicas : " + toBeAssignedReplicas);
     } else {
       // check each resource to identify the allocated replicas and to-be-assigned replicas.
       for (Map.Entry<String, Set<AssignableReplica>> replicaMapEntry : replicaMap.entrySet()) {
@@ -430,6 +434,7 @@ public class ClusterModelProvider {
                 stateMap.getOrDefault(replica.getPartitionName(), Collections.emptyMap())
                     .getOrDefault(replica.getReplicaState(), Collections.emptySet());
             if (validInstances.isEmpty()) {
+              // RR: This is where replica with current state not same as desired state will be captured.
               // 3. if no such an instance in the current assignment, need to reassign the replica
               toBeAssignedReplicas.add(replica);
               continue; // go to check the next replica

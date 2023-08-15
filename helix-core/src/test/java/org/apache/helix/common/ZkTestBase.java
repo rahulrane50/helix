@@ -672,6 +672,27 @@ public class ZkTestBase {
     }
   }
 
+  protected void updateCurrentState(String clusterName, String resourceName, String partitionName, String targetState) {
+    ZKHelixDataAccessor accessor =
+        new ZKHelixDataAccessor(clusterName, new ZkBaseDataAccessor<>(_gZkClient));
+    Builder keyBuilder = accessor.keyBuilder();
+
+    List<String> liveParticipants = accessor.getChildNames(keyBuilder.liveInstances());
+    for (String participant : liveParticipants) {
+      List<String> sessionIds = accessor.getChildNames(keyBuilder.sessions(participant));
+      for (String sessionId : sessionIds) {
+        CurrentState currentState = accessor.getProperty(keyBuilder.currentState(participant, sessionId, resourceName));
+        Map<String, String> partitionStateMap = currentState.getPartitionStateMap();
+        if (partitionStateMap != null && partitionStateMap.containsKey(partitionName)) {
+          String curState = currentState.getState(partitionName);
+          currentState.setState(partitionName, targetState);
+          accessor.setProperty(keyBuilder.currentState(participant, sessionId, resourceName), currentState);
+          LOG.info("RR: updating partition state of {} from {} to {}",partitionName, curState, currentState.getState(partitionName));
+          return;
+        }
+      }
+    }
+  }
   protected void setupInstances(String clusterName, int[] instances) {
     HelixAdmin admin = new ZKHelixAdmin(_gZkClient);
     for (int i = 0; i < instances.length; i++) {
